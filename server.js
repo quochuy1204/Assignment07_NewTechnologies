@@ -8,6 +8,8 @@ var User = require('./app/models/user.js');
 var port = process.env.port || 8080; //set the port for our application
 var jwt = require('jsonwebtoken');
 var superSecret = 'toihocmean';
+var passport = require('passport');
+var GoogleStrategy = require('passport-google-oauth').OAuth2Strategy;
 
 //App configuration
 //use body-parser so we can grab information from POST requests
@@ -25,22 +27,57 @@ app.use(function (req, res, next) {
 //log all request to the console
 app.use(morgan('dev'));
 
+
+//configure to connect with locall mongodb 
 mongoose.Promise = global.Promise;
 mongoose.connect('mongodb://127.0.0.1:27017/mydata', { userNewUrlParser: true });
 mongoose.set('useCreateIndex', true);
+
 //Routes for our api
 //basic router for the homepage 
 app.get('/', function (req, res) {
     res.send('Welcome to the home page!');
 });
 
+app.get('/error', function (req, res) {
+    res.send('Error page!');
+});
+
 //get an instance of the express router
 var apiRouter = express.Router();
+
+
+//Authentication with Google Account
+//We have to get client ID and clientSecret on API Google 
+passport.use(new GoogleStrategy({
+    clientID: '1047754270733-5naai1h28mp2o96hodbl6gutnooatk88.apps.googleusercontent.com',
+    clientSecret: 'eH_D7pCeLzoJoOhrNLMmd9Ks',
+    callbackURL: "/auth/google/callback"
+
+},
+    function (accessToken, refreshToken, profile, done) {
+        User.findOrCreate({
+            googleId: profile.id
+        },
+            function (err, user) {
+                return done(err, user);
+            });
+    }
+));
+
+//route to authentication a user with Google Account
+app.get('/auth/google', passport.authenticate('google', { scope: ['https://www.googleapis.com/auth/plus.login'] }));
+
+app.get('/auth/google/callback',
+    passport.authenticate('google', { failureRedirect: '/error' }),
+    function (req, res) {
+        res.redirect('/');
+    });
 
 //route to authenticate a user (POST http://localhost:8080/appi/authenticate)
 apiRouter.post('/authenticate', function (req, res) {
     User.findOne({
-        username: req.body.username
+        username: req.body.username //find an username in the request body 
     }).select('name username password').exec(function (err, user) {
         if (err) throw err;
         if (!user) {
@@ -56,13 +93,17 @@ apiRouter.post('/authenticate', function (req, res) {
                     message: 'Authentication failed. Wrong password !'
                 });
             } else {
-                console.log('ABC ABC ABC');
+
                 var token = jwt.sign({
                     name: user.name,
                     username: user.username
-                }, superSecret, {
-                    expiresIn: '24h'
-                });
+                },
+
+                    superSecret,
+                    {
+                        expiresIn: '24h'
+                    });
+
                 res.json({
                     success: true,
                     message: 'Lam viec voi token !',
@@ -75,7 +116,6 @@ apiRouter.post('/authenticate', function (req, res) {
 
 //middleware - application middleware
 apiRouter.use(function (req, res, next) {
-    console.log('Dang lam tren App !');
     // next();
 
     //check header or url parameters or post parameters for token
@@ -113,7 +153,9 @@ apiRouter.get('/', function (req, res) {
     res.json({ message: 'This is an example about api.' });
 });
 
+//create router in order to create or get all Users
 apiRouter.route('/users')
+    //router for create user
     .post(function (req, res) {
         var user = new User();
         user.name = req.body.name;
@@ -131,12 +173,15 @@ apiRouter.route('/users')
             res.json({ message: 'User created!' });
         });
     })
+    //router for get all user
     .get(function (req, res) {
         User.find(function (err, users) {
             if (err) return res.send(err);
             res.json(users);
         });
     });
+
+//router for get user by userid
 apiRouter.route('/users/:user_id')
     .get(function (req, res) {
         User.findById(req.params.user_id, function (err, user) {
@@ -144,6 +189,8 @@ apiRouter.route('/users/:user_id')
             res.json(user);
         });
     })
+
+    //router for delete user
     .delete(function (req, res) {
         User.remove({
             _id: req.params.user_id
@@ -152,6 +199,8 @@ apiRouter.route('/users/:user_id')
             res.json({ message: 'Successfully deleted' });
         });
     })
+
+    //router for update user
     .put(function (req, res) {
         User.findById(req.params.user_id, function (err, user) {
             if (err) return res.send(err);
